@@ -9,5 +9,16 @@ module.exports = defineConfig({
         changeOrigin: true
       }
     }
+  },
+  pwa: {
+    name: '受付システム',
+    themeColor: '#4DBA87',
+    msTileColor: '#000000',
+    manifestOptions: {
+      short_name: '受付',
+      start_url: '.',
+      display: 'standalone',
+      background_color: '#ffffff'
+    }
   }
 })
