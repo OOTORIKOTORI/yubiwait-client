@@ -17,7 +17,7 @@ module.exports = defineConfig({
     msTileColor: '#000000',
     manifestOptions: {
       short_name: '受付',
-      start_url: '.',
+      start_url: '/index.html',
       display: 'standalone',
       background_color: '#ffffff'
     }
