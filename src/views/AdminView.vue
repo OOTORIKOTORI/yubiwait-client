@@ -1,22 +1,36 @@
 <template>
-  <div>
+  <div class="container">
     <h2>店員ページ</h2>
-    <p>店舗ID: {{ storeId }}</p>
+    <p class="store-id">店舗ID: {{ storeId }}</p>
 
     <h3>受付一覧：</h3>
-    <ul>
-      <li v-for="(c, i) in customers" :key="i">
-        {{ c.name }}（{{ formatDate(c.joinedAt) }}）
-        <button @click="markAsDone(c._id)">完了</button>
-      </li>
-    </ul>
+    <table class="customer-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>名前</th>
+          <th>受付時間</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="(c, i) in customers" :key="c._id">
+          <td>{{ i + 1 }}</td>
+          <td class="name">{{ c.name }}</td>
+          <td class="time">{{ formatDate(c.joinedAt) }}</td>
+          <td><button class="done-btn" @click="markAsDone(c._id)">✔ 完了</button></td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
+
+let intervalId = null
 
 const route = useRoute()
 const storeId = route.params.storeId
@@ -31,19 +45,15 @@ const fetchCustomers = async () => {
   }
 }
 
-onMounted(fetchCustomers)
-
-// ✅ 完了ボタン押下時
 const markAsDone = async (customerId) => {
   try {
     await axios.patch(`/api/admin/${storeId}/done/${customerId}`)
-    await fetchCustomers() // 再取得して更新
+    await fetchCustomers()
   } catch (err) {
     console.error('完了処理エラー', err)
   }
 }
 
-// ✅ 日付フォーマット（例：2025/07/20 13:00）
 const formatDate = (isoString) => {
   const date = new Date(isoString)
   const y = date.getFullYear()
@@ -53,4 +63,71 @@ const formatDate = (isoString) => {
   const min = String(date.getMinutes()).padStart(2, '0')
   return `${y}/${m}/${d} ${h}:${min}`
 }
+
+onMounted(() => {
+  fetchCustomers()
+  intervalId = setInterval(fetchCustomers, 10000)
+})
+
+onBeforeUnmount(() => {
+  clearInterval(intervalId)
+})
 </script>
+
+<style scoped>
+.container {
+  max-width: 720px;
+  margin: 50px auto;
+  padding: 20px;
+  text-align: center;
+  font-family: sans-serif;
+}
+
+.store-id {
+  color: #666;
+  font-size: 14px;
+}
+
+.customer-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+}
+
+.customer-table th,
+.customer-table td {
+  border: 1px solid #ddd;
+  padding: 12px;
+}
+
+.customer-table th {
+  background-color: #f2f2f2;
+}
+
+.customer-table tr:hover {
+  background-color: #f9f9f9;
+}
+
+.name {
+  text-align: left;
+  font-weight: 500;
+}
+
+.time {
+  font-family: monospace;
+}
+
+.done-btn {
+  background-color: #28a745;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.done-btn:hover {
+  background-color: #218838;
+}
+</style>

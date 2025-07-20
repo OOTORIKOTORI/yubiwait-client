@@ -1,22 +1,25 @@
 <template>
-  <div>
+  <div class="container">
     <h2>受付ページ</h2>
     <p>店舗ID: {{ storeId }}</p>
 
-    <p v-if="waitingCount !== null">
-      あなたの前に {{ waitingCount }} 人待っています<br />
-      予想待ち時間：約 {{ estimatedTime }} 分
+    <div v-if="waitingCount !== null" class="status">
+      あなたの前に <strong>{{ waitingCount }}</strong> 人待っています<br />
+      予想待ち時間：約 <strong>{{ estimatedTime }}</strong> 分
+    </div>
+
+    <p v-if="customerId && registeredName">
+      「{{ registeredName }}」さんの待ち時間です
     </p>
-    <p v-if="customerId && registeredName">「{{ registeredName }}」さんの待ち時間です</p>
 
     <input v-model="name" placeholder="お名前を入力" />
+    <br />
     <button @click="submit">登録</button>
-    <button @click="resetRegistration" style="margin-left: 8px;">登録しなおす</button>
+    <button @click="resetRegistration">登録しなおす</button>
 
     <p v-if="message">{{ message }}</p>
   </div>
 </template>
-
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
@@ -99,3 +102,44 @@ onUnmounted(() => {
   if (intervalId) clearInterval(intervalId)
 })
 </script>
+
+<style scoped>
+.container {
+  max-width: 400px;
+  margin: 60px auto;
+  padding: 20px;
+  text-align: center;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background-color: #fdfdfd;
+  box-shadow: 0 0 10px rgba(0,0,0,0.05);
+}
+
+input {
+  padding: 8px;
+  width: 70%;
+  margin-top: 12px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+}
+
+button {
+  margin-top: 12px;
+  padding: 8px 16px;
+  margin-right: 8px;
+  border: none;
+  background-color: #007bff;
+  color: white;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: #0056b3;
+}
+
+.status {
+  margin: 16px 0;
+  font-size: 1.1em;
+}
+</style>
