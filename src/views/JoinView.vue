@@ -26,8 +26,14 @@
 
     <input v-model="name" placeholder="お名前を入力" />
     <br />
-    <button @click="submit">登録</button>
+    <button @click="submit" :disabled="!!customerId">
+      {{ customerId ? '登録済み' : '登録' }}
+    </button>
     <button @click="resetRegistration">登録しなおす</button>
+
+    <button v-if="customerId" @click="cancelRegistration" class="cancel-button">
+      キャンセル
+    </button>
 
     <p v-if="message">{{ message }}</p>
   </div>
@@ -169,6 +175,20 @@ onUnmounted(() => {
   // 🧹 クリーンアップ
   if (intervalId) clearInterval(intervalId)
 })
+
+const cancelRegistration = async () => {
+  try {
+    await axios.delete(`/api/join/${storeId}/cancel`, {
+      data: { customerId: customerId.value }
+    })
+    resetRegistration()
+    message.value = 'キャンセルしました'
+  } catch (err) {
+    console.error('キャンセルエラー:', err)
+    message.value = 'キャンセルできませんでした'
+  }
+}
+
 </script>
 
 <style scoped>
@@ -234,9 +254,23 @@ button:hover {
 }
 
 @keyframes pulse {
-  0% { transform: scale(1); }
-  50% { transform: scale(1.05); }
-  100% { transform: scale(1); }
+  0% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.05);
+  }
+
+  100% {
+    transform: scale(1);
+  }
 }
 
+button:disabled {
+  background-color: #ccc;
+  color: #666;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
 </style>

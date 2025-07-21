@@ -1,7 +1,12 @@
 <template>
   <div class="container">
     <h2>店員ページ</h2>
+    <p class="store-name">店舗名: {{ storeName }}</p>
     <p class="store-id">店舗ID: {{ storeId }}</p>
+
+    <!-- ログアウトボタン追加！ -->
+    <button class="logout-btn" @click="logout">ログアウト</button>
+
 
     <h3>受付一覧：</h3>
     <table class="customer-table">
@@ -18,7 +23,11 @@
           <td>{{ i + 1 }}</td>
           <td class="name">{{ c.name }}</td>
           <td class="time">{{ formatDate(c.joinedAt) }}</td>
-          <td><button class="done-btn" @click="markAsDone(c._id)">✔ 完了</button></td>
+          <td>
+            <button class="done-btn" :class="{ 'highlighted': i === 0 }" @click="markAsDone(c._id)">
+              ✔ 完了
+            </button>
+          </td>
         </tr>
       </tbody>
     </table>
@@ -27,12 +36,21 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import axios from 'axios'
+
+const storeName = ref(localStorage.getItem('storeName') || '')
+const router = useRouter()
+const route = useRoute()
+const logout = () => {
+  localStorage.removeItem('storeToken')
+  localStorage.removeItem('storeId')
+  localStorage.removeItem('storeName')
+  router.push('/login')
+}
 
 let intervalId = null
 
-const route = useRoute()
 const storeId = route.params.storeId
 const customers = ref([])
 
@@ -42,6 +60,10 @@ const fetchCustomers = async () => {
     customers.value = res.data.customers
   } catch (err) {
     console.error('一覧取得エラー', err)
+    if (err?.response?.status === 401) {
+      // トークン無効 or 期限切れなど → 強制ログアウト
+      logout()
+    }
   }
 }
 
@@ -51,6 +73,10 @@ const markAsDone = async (customerId) => {
     await fetchCustomers()
   } catch (err) {
     console.error('完了処理エラー', err)
+    if (err?.response?.status === 401) {
+      // トークン無効 or 期限切れなど → 強制ログアウト
+      logout()
+    }
   }
 }
 
@@ -72,6 +98,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   clearInterval(intervalId)
 })
+
 </script>
 
 <style scoped>
@@ -130,4 +157,36 @@ onBeforeUnmount(() => {
 .done-btn:hover {
   background-color: #218838;
 }
+
+.logout-btn {
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: bold;
+  margin: 12px 0;
+}
+
+.logout-btn:hover {
+  background-color: #c82333;
+}
+
+.store-name {
+  font-size: 16px;
+  margin-bottom: 4px;
+}
+
+.customer-table tbody tr:first-child {
+  background-color: #fff3cd;
+  /* 薄い黄色（Bootstrapでいう「警告」系） */
+  font-weight: bold;
+}
+
+.done-btn.highlighted {
+  border: 2px solid #333;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
+}
+
 </style>
