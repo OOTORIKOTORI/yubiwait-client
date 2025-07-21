@@ -21,6 +21,6 @@ module.exports = defineConfig({
       "display": "standalone",
       "scope": "/",
       background_color: '#ffffff'
-    }
+    },
   }
 })
