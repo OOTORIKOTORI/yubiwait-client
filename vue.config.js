@@ -1,7 +1,7 @@
 const { defineConfig } = require('@vue/cli-service')
 
 module.exports = defineConfig({
-  publicPath: '/',
+  publicPath: './',
   transpileDependencies: true,
   devServer: {
     proxy: {
@@ -17,7 +17,7 @@ module.exports = defineConfig({
     msTileColor: '#000000',
     manifestOptions: {
       short_name: '受付',
-      "start_url": "/index.html#/",
+      "start_url": "./",
       "display": "standalone",
       "scope": "/",
       background_color: '#ffffff'
