@@ -3,9 +3,21 @@
     <h2>受付ページ</h2>
     <p>店舗ID: {{ storeId }}</p>
 
-    <div v-if="waitingCount !== null" class="status">
-      あなたの前に <strong>{{ waitingCount }}</strong> 人待っています<br />
-      予想待ち時間：約 <strong>{{ estimatedTime }}</strong> 分
+    <div v-if="waitingCount !== null" class="status" :class="{
+      'highlight-warning': waitingCount <= 3 && waitingCount > 0,
+      'highlight-now': waitingCount === 0
+    }">
+      <template v-if="waitingCount === 0">
+        🎉 あなたの順番です！<br />
+        スタッフにお名前をお伝えください！
+      </template>
+      <template v-else>
+        あなたの前に <strong>{{ waitingCount }}</strong> 人待っています<br />
+        予想待ち時間：約 <strong>{{ estimatedTime }}</strong> 分
+      </template>
+    </div>
+    <div v-else-if="waitingCount === null">
+      情報を取得しています...
     </div>
 
     <p v-if="customerId && registeredName">
@@ -113,7 +125,11 @@ const fetchWaitingInfo = async () => {
       params: { customerId: customerId.value || '' }
     })
     waitingCount.value = res.data.waitingCount
-    estimatedTime.value = waitingCount.value * 2
+    estimatedTime.value = (waitingCount.value ?? 0) * 5
+    // 通知確認
+    await axios.post(`/api/join/${storeId}/notify`, {
+      customerId: customerId.value
+    })
   } catch (err) {
     console.error('待ち人数取得エラー:', err)
   }
@@ -194,4 +210,33 @@ button:hover {
   margin: 16px 0;
   font-size: 1.1em;
 }
+
+/* 強調：まもなく呼ばれる */
+.highlight-warning {
+  background-color: #fff8e1;
+  border: 1px solid #ffc107;
+  color: #b36b00;
+  font-weight: bold;
+  padding: 12px;
+  border-radius: 6px;
+}
+
+/* 強調：あなたの番！ */
+.highlight-now {
+  background-color: #e1f5fe;
+  border: 2px solid #00acc1;
+  color: #006064;
+  font-weight: bold;
+  font-size: 1.2em;
+  padding: 16px;
+  border-radius: 6px;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
 </style>
