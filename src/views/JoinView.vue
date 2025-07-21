@@ -49,11 +49,63 @@ const submit = async () => {
 
 
     await fetchWaitingInfo()
+
+    // ✅ ここでPush購読処理を呼ぶ！
+    await registerPushNotification()
   } catch (err) {
     message.value = '送信エラー'
     console.error(err)
   }
 }
+
+async function registerPushNotification() {
+  try {
+    const response = await axios.get(`/api/join/${storeId}/publicKey`)
+    const publicKey = response.data.publicKey
+
+    const permission = await Notification.requestPermission()
+    if (permission !== 'granted') {
+      alert('通知が許可されていません')
+      return
+    }
+
+    const swVersion = '1.0.4' // ← 自分で手動でバージョン上げる
+    const registration = await navigator.serviceWorker.register(`/service-worker.js?v=${swVersion}`, { scope: '/' })
+
+    // const registration = await navigator.serviceWorker.register('/service-worker.js?ver=' + Date.now(), { scope: '/' })
+    console.log('SW 登録完了:', registration)
+
+    // Service Worker が "起動完了" するのを待つ！
+    const swReady = await navigator.serviceWorker.ready
+    console.log(swReady);
+
+    const existing = await registration.pushManager.getSubscription()
+    console.log('既存購読:', existing)
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey)
+    })
+
+    // 🔥 ここでサーバーに購読情報を送信！
+    await axios.post(`/api/join/${storeId}/subscribe`, {
+      customerId: customerId.value,
+      subscription
+    })
+  } catch (err) {
+    console.error('Push通知登録エラー:', err)
+  }
+}
+
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4)
+  const base64 = (base64String + padding)
+    .replace(/-/g, '+')
+    .replace(/_/g, '/')
+  const rawData = window.atob(base64)
+  return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)))
+}
+
 
 const fetchWaitingInfo = async () => {
   try {
@@ -79,7 +131,7 @@ const resetRegistration = () => {
 }
 
 // ✅ 初期化処理
-onMounted(() => {
+onMounted(async () => {
   const savedId = localStorage.getItem('customerId')
   const savedName = localStorage.getItem('customerName')
 
@@ -112,7 +164,7 @@ onUnmounted(() => {
   border: 1px solid #ddd;
   border-radius: 8px;
   background-color: #fdfdfd;
-  box-shadow: 0 0 10px rgba(0,0,0,0.05);
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.05);
 }
 
 input {
