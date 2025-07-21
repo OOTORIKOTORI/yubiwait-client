@@ -7,6 +7,9 @@
     <!-- ログアウトボタン追加！ -->
     <button class="logout-btn" @click="logout">ログアウト</button>
 
+    <!-- 新規受付ボタン追加 -->
+    <button class="anon-btn" @click="registerAnonymous">匿名で受付</button>
+
 
     <h3>受付一覧：</h3>
     <table class="customer-table">
@@ -89,6 +92,19 @@ const formatDate = (isoString) => {
   const min = String(date.getMinutes()).padStart(2, '0')
   return `${y}/${m}/${d} ${h}:${min}`
 }
+
+const registerAnonymous = async () => {
+  try {
+    await axios.post(`/api/admin/${storeId}/anonymous`)
+    await fetchCustomers()
+  } catch (err) {
+    console.error('匿名登録エラー', err)
+    if (err?.response?.status === 401) {
+      logout()
+    }
+  }
+}
+
 
 onMounted(() => {
   fetchCustomers()
@@ -187,6 +203,21 @@ onBeforeUnmount(() => {
 .done-btn.highlighted {
   border: 2px solid #333;
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
+}
+
+.anon-btn {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: bold;
+  margin-bottom: 12px;
+}
+
+.anon-btn:hover {
+  background-color: #0069d9;
 }
 
 </style>

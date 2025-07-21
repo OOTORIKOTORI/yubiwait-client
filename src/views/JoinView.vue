@@ -8,8 +8,14 @@
       'highlight-now': waitingCount === 0
     }">
       <template v-if="waitingCount === 0">
-        🎉 あなたの順番です！<br />
-        スタッフにお名前をお伝えください！
+        <div v-if="customerId">
+          🎉 あなたの順番です！<br />
+          スタッフにお名前をお伝えください！
+        </div>
+        <div v-else>
+          現在、待ち人数は0人です。<br />
+          登録後すぐに受付可能です！
+        </div>
       </template>
       <template v-else>
         あなたの前に <strong>{{ waitingCount }}</strong> 人待っています<br />
@@ -165,10 +171,10 @@ onMounted(async () => {
     registeredName.value = savedName
   }
   fetchWaitingInfo()
-  // ⏱ 定期実行スタート（30秒ごと）
+  // ⏱ 定期実行スタート（10秒ごと）
   intervalId = setInterval(() => {
     fetchWaitingInfo()
-  }, 30 * 1000)
+  }, 10 * 1000)
 })
 
 onUnmounted(() => {
