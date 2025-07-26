@@ -17,6 +17,7 @@
         <tr>
           <th>#</th>
           <th>名前</th>
+          <th>コメント</th> <!-- 👈 追加！ -->
           <th>受付時間</th>
           <th>操作</th>
         </tr>
@@ -24,12 +25,44 @@
       <tbody>
         <tr v-for="(c, i) in customers" :key="c._id">
           <td>{{ i + 1 }}</td>
-          <td class="name">{{ c.name }}</td>
-          <td class="time">{{ formatDate(c.joinedAt) }}</td>
+
+          <!-- 名前 -->
           <td>
-            <button class="done-btn" :class="{ 'highlighted': i === 0 }" @click="markAsDone(c._id)">
+            <div v-if="!c._isEditing">
+              {{ c.name }}
+              <button class="edit-btn" @click="enableEdit(c)">✏</button>
+            </div>
+            <div v-else>
+              <input v-model="c._editName" />
+            </div>
+          </td>
+
+          <!-- コメント 👇 -->
+          <td>
+            <div v-if="!c._isEditing">
+              {{ c.comment || '（なし）' }}
+            </div>
+            <div v-else>
+              <textarea v-model="c._editComment" placeholder="メモを入力"></textarea>
+            </div>
+          </td>
+
+          <!-- 受付時間 -->
+          <td class="time">{{ formatDate(c.joinedAt) }}</td>
+
+          <!-- 操作 -->
+          <td>
+            <!-- 編集中じゃないときだけ完了ボタンを表示 -->
+            <button v-if="!c._isEditing" class="done-btn" :class="{ 'highlighted': i === 0 }"
+              @click="markAsDone(c._id)">
               ✔ 完了
             </button>
+
+            <!-- 編集中の操作ボタン -->
+            <div v-if="c._isEditing">
+              <button class="save-btn" @click="saveEdit(c)">保存</button>
+              <button class="cancel-btn" @click="cancelEdit(c)">キャンセル</button>
+            </div>
           </td>
         </tr>
       </tbody>
@@ -57,18 +90,20 @@ let intervalId = null
 const storeId = route.params.storeId
 const customers = ref([])
 
+const isEditingAny = ref(false)
+
 const fetchCustomers = async () => {
+  if (isEditingAny.value) return  // 👈 編集中ならスキップ！
+
   try {
     const res = await axios.get(`/api/admin/${storeId}`)
     customers.value = res.data.customers
   } catch (err) {
     console.error('一覧取得エラー', err)
-    if (err?.response?.status === 401) {
-      // トークン無効 or 期限切れなど → 強制ログアウト
-      logout()
-    }
+    if (err?.response?.status === 401) logout()
   }
 }
+
 
 const markAsDone = async (customerId) => {
   try {
@@ -105,6 +140,31 @@ const registerAnonymous = async () => {
   }
 }
 
+const enableEdit = (customer) => {
+  isEditingAny.value = true
+  customer._isEditing = true
+  customer._editName = customer.name
+  customer._editComment = customer.comment || ''
+}
+
+const cancelEdit = (customer) => {
+  customer._isEditing = false
+  isEditingAny.value = false
+}
+
+const saveEdit = async (customer) => {
+  try {
+    await axios.patch(`/api/admin/${storeId}/update/${customer._id}`, {
+      name: customer._editName,
+      comment: customer._editComment
+    })
+    customer._isEditing = false
+    isEditingAny.value = false
+    await fetchCustomers()
+  } catch (err) {
+    console.error('編集保存エラー', err)
+  }
+}
 
 onMounted(() => {
   fetchCustomers()
@@ -219,5 +279,4 @@ onBeforeUnmount(() => {
 .anon-btn:hover {
   background-color: #0069d9;
 }
-
 </style>
