@@ -1,6 +1,8 @@
 <template>
   <div class="login-container">
     <h2>店員ログイン</h2>
+    <p class="note">※この画面は店舗スタッフ用です。お客様はQRコードからアクセスしてください。</p>
+
 
     <form @submit.prevent="login">
       <label for="storeId">店舗を選択</label>
