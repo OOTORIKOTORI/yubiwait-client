@@ -30,7 +30,7 @@ module.exports = defineConfig({
 
     manifestOptions: {
       short_name: '受付',
-      start_url: './#/login',
+      start_url: './#/staff-login',
       display: 'standalone',
       scope: '/',
       background_color: '#ffffff',

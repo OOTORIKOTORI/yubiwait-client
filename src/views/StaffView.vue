@@ -82,7 +82,7 @@ const logout = () => {
   localStorage.removeItem('staffToken')
   localStorage.removeItem('storeId')
   localStorage.removeItem('storeName')
-  router.push('/login')
+  router.push('/staff-login')
 }
 
 let intervalId = null
@@ -96,7 +96,7 @@ const fetchCustomers = async () => {
   if (isEditingAny.value) return  // 👈 編集中ならスキップ！
 
   try {
-    const res = await axios.get(`/api/admin/${storeId}`)
+    const res = await axios.get(`/api/staff/${storeId}`)
     customers.value = res.data.customers
   } catch (err) {
     console.error('一覧取得エラー', err)
@@ -107,7 +107,7 @@ const fetchCustomers = async () => {
 
 const markAsDone = async (customerId) => {
   try {
-    await axios.patch(`/api/admin/${storeId}/done/${customerId}`)
+    await axios.patch(`/api/staff/${storeId}/done/${customerId}`)
     await fetchCustomers()
   } catch (err) {
     console.error('完了処理エラー', err)
@@ -130,7 +130,7 @@ const formatDate = (isoString) => {
 
 const registerAnonymous = async () => {
   try {
-    await axios.post(`/api/admin/${storeId}/anonymous`)
+    await axios.post(`/api/staff/${storeId}/anonymous`)
     await fetchCustomers()
   } catch (err) {
     console.error('匿名登録エラー', err)
@@ -154,7 +154,7 @@ const cancelEdit = (customer) => {
 
 const saveEdit = async (customer) => {
   try {
-    await axios.patch(`/api/admin/${storeId}/update/${customer._id}`, {
+    await axios.patch(`/api/staff/${storeId}/update/${customer._id}`, {
       name: customer._editName,
       comment: customer._editComment
     })

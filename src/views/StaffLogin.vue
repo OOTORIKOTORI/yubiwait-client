@@ -59,7 +59,7 @@ const login = async () => {
   errorMessage.value = ''
 
   try {
-    const res = await axios.post('/api/store/login', {
+    const res = await axios.post('/api/store/staff-login', {
       storeId: storeId.value,
       pinCode: pinCode.value
     })
@@ -70,7 +70,7 @@ const login = async () => {
     localStorage.setItem('storeName', res.data.storeName) // ←これ追加！
 
 
-    router.push(`/admin/${storeId.value}`)
+    router.push(`/staff/${storeId.value}`)
   } catch (err) {
     console.error('ログイン失敗:', err)
     errorMessage.value =

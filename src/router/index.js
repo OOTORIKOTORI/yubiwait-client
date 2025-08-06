@@ -1,8 +1,8 @@
 // src/router/index.js
 import { createRouter, createWebHashHistory } from 'vue-router'
 import JoinView from '../views/JoinView.vue'
-import AdminView from '../views/AdminView.vue'
-import StoreLogin from '../views/StoreLogin.vue'
+import StaffView from '../views/StaffView.vue'
+import StaffLogin from '../views/StaffLogin.vue'
 
 const routes = [
   {
@@ -11,14 +11,14 @@ const routes = [
     component: JoinView
   },
   {
-    path: '/admin/:storeId',
-    name: 'Admin',
-    component: AdminView
+    path: '/staff/:storeId',
+    name: 'Staff',
+    component: StaffView
   },
   {
-    path: '/login',
-    name: 'StoreLogin',
-    component: StoreLogin
+    path: '/staff-login',
+    name: 'StaffLogin',
+    component: StaffLogin
   }
 ]
 
@@ -29,13 +29,13 @@ const router = createRouter({
 
 // router/index.js など
 router.beforeEach((to, from, next) => {
-  if (to.path.startsWith('/admin/')) {
+  if (to.path.startsWith('/staff/')) {
     const token = localStorage.getItem('staffToken')
     if (!token || isTokenExpired(token)) {
       localStorage.removeItem('staffToken')
       localStorage.removeItem('storeId')
       localStorage.removeItem('storeName')
-      return next('/login')
+      return next('/staff-login')
     }
   }
   next()
