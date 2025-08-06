@@ -1,6 +1,6 @@
 <template>
   <div class="container">
-    <h2>受付ページ</h2>
+    <h2>受付ページ - {{ storeName }}</h2>
     <p>店舗ID: {{ storeId }}</p>
 
     <div v-if="waitingCount !== null" class="status" :class="{
@@ -32,10 +32,13 @@
 
     <input v-model="name" placeholder="お名前を入力" />
     <br />
-    <button @click="submit" :disabled="!!customerId">
-      {{ customerId ? '登録済み' : '登録' }}
+    <!-- 登録ボタン -->
+    <button v-if="!customerId" @click="submit">
+      登録
     </button>
-    <button @click="resetRegistration">登録しなおす</button>
+    <button v-if="customerId" @click="resetRegistration">
+      登録しなおす
+    </button>
 
     <button v-if="customerId" @click="cancelRegistration" class="cancel-button">
       キャンセル
@@ -58,7 +61,20 @@ const message = ref('')
 const customerId = ref(null)
 const waitingCount = ref(null)
 const estimatedTime = ref(null)
+const storeName = ref('')
+
 let intervalId = null
+
+const fetchStoreName = async () => {
+  try {
+    const res = await axios.get(`/api/join/${storeId}/name`)
+    storeName.value = res.data.name
+  } catch (err) {
+    console.error('店舗名取得エラー:', err)
+    storeName.value = '(店舗名不明)'
+  }
+}
+
 
 const submit = async () => {
   if (!name.value) return
@@ -170,12 +186,15 @@ onMounted(async () => {
     name.value = savedName
     registeredName.value = savedName
   }
+
+  await fetchStoreName() // ←ここを追加！
   fetchWaitingInfo()
-  // ⏱ 定期実行スタート（10秒ごと）
+
   intervalId = setInterval(() => {
     fetchWaitingInfo()
   }, 10 * 1000)
 })
+
 
 onUnmounted(() => {
   // 🧹 クリーンアップ

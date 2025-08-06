@@ -30,9 +30,9 @@ const router = createRouter({
 // router/index.js など
 router.beforeEach((to, from, next) => {
   if (to.path.startsWith('/admin/')) {
-    const token = localStorage.getItem('storeToken')
+    const token = localStorage.getItem('staffToken')
     if (!token || isTokenExpired(token)) {
-      localStorage.removeItem('storeToken')
+      localStorage.removeItem('staffToken')
       localStorage.removeItem('storeId')
       localStorage.removeItem('storeName')
       return next('/login')

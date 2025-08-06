@@ -65,7 +65,7 @@ const login = async () => {
     })
 
     const token = res.data.token
-    localStorage.setItem('storeToken', token)
+    localStorage.setItem('staffToken', token)
     localStorage.setItem('storeId', storeId.value)
     localStorage.setItem('storeName', res.data.storeName) // ←これ追加！
 

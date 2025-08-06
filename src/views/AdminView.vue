@@ -79,7 +79,7 @@ const storeName = ref(localStorage.getItem('storeName') || '')
 const router = useRouter()
 const route = useRoute()
 const logout = () => {
-  localStorage.removeItem('storeToken')
+  localStorage.removeItem('staffToken')
   localStorage.removeItem('storeId')
   localStorage.removeItem('storeName')
   router.push('/login')
