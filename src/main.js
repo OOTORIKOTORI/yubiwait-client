@@ -26,7 +26,7 @@ axios.interceptors.response.use(
       // 認証切れ時の処理
       localStorage.removeItem('staffToken');
       // 任意のログインページにリダイレクト
-      window.location.href = '/staff-login';
+      window.location.href = '/#/staff-login';
     }
     return Promise.reject(error);
   }

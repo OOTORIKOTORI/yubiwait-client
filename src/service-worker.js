@@ -1,7 +1,11 @@
 // public/service-worker.js
 
 // キャッシュ対象のファイルをworkboxが注入
-import { precacheAndRoute } from 'workbox-precaching';
+import { precacheAndRoute } from 'workbox-precaching'
+import { registerRoute } from 'workbox-routing'
+import { CacheFirst } from 'workbox-strategies'
+import { ExpirationPlugin } from 'workbox-expiration'
+
 precacheAndRoute(self.__WB_MANIFEST);
 
 self.addEventListener('push', event => {
@@ -12,3 +16,14 @@ self.addEventListener('push', event => {
     body: data.body || '通知内容です'
   });
 });
+
+// static file cache
+registerRoute(
+  ({ request }) => ['style', 'script', 'image'].includes(request.destination),
+  new CacheFirst({
+    cacheName: 'static-resources',
+    plugins: [
+      new ExpirationPlugin({ maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 * 7 })
+    ]
+  })
+)

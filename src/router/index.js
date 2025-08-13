@@ -3,6 +3,8 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import JoinView from '../views/JoinView.vue'
 import StaffView from '../views/StaffView.vue'
 import StaffLogin from '../views/StaffLogin.vue'
+import AdminLogin from '../views/AdminLogin.vue'
+import AdminDashboard from '../views/AdminDashboard.vue'
 
 const routes = [
   {
@@ -19,7 +21,17 @@ const routes = [
     path: '/staff-login',
     name: 'StaffLogin',
     component: StaffLogin
-  }
+  },
+  {
+    path: '/admin-login',
+    name: 'AdminLogin',
+    component: AdminLogin
+  },
+  {
+    path: '/admin',
+    name: 'AdminDashboard',
+    component: AdminDashboard
+  },
 ]
 
 const router = createRouter({

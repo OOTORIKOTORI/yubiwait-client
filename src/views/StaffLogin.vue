@@ -21,6 +21,10 @@
       </button>
     </form>
 
+    <p style="margin-top:16px;font-size:.9em;color:#666;">
+      管理者の方は <a href="#/admin-login">こちら</a>
+    </p>
+
     <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
   </div>
 </template>
