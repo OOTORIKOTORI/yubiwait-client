@@ -21,6 +21,7 @@
         あなたの前に <strong>{{ waitingCount }}</strong> 人待っています<br />
         予想待ち時間：約 <strong>{{ estimatedTime }}</strong> 分
       </template>
+      <small v-if="minutesPerPerson">（1人あたり {{ minutesPerPerson }} 分基準）</small>
     </div>
     <div v-else-if="waitingCount === null">
       情報を取得しています...
@@ -62,8 +63,10 @@ const customerId = ref(null)
 const waitingCount = ref(null)
 const estimatedTime = ref(null)
 const storeName = ref('')
-
-let intervalId = null
+const minutesPerPerson = ref(5) // 表示用に使うなら
+const lastWaitingCount = ref(null)
+const lastNotifiedAt = ref(0)
+const notifyCooldownMs = 15000
 
 const fetchStoreName = async () => {
   try {
@@ -149,15 +152,29 @@ function urlBase64ToUint8Array(base64String) {
 
 const fetchWaitingInfo = async () => {
   try {
-    const res = await axios.get(`/api/join/${storeId}/waiting-time`, {
-      params: { customerId: customerId.value || '' }
-    })
-    waitingCount.value = res.data.waitingCount
-    estimatedTime.value = (waitingCount.value ?? 0) * 5
-    // 通知確認
-    await axios.post(`/api/join/${storeId}/notify`, {
-      customerId: customerId.value
-    })
+    const params = {}
+    if (customerId.value) params.customerId = customerId.value
+    const res = await axios.get(`/api/join/${storeId}/waiting-time`, { params })
+    waitingCount.value = res.data?.waitingCount ?? 0
+    estimatedTime.value  = Math.max(0, Math.round(res.data?.estimatedMinutes ?? 0))
+    // （任意）UIで見せたいなら保存しておける
+    minutesPerPerson.value = res.data?.minutesPerPerson ?? minutesPerPerson.value
+    // 通知確認（閾値 or 減少時のみ & クールダウン）
+    if (customerId.value) {
+      const now = Date.now()
+      const touchedThreshold = [3, 1, 0].includes(waitingCount.value)
+      const decreased = (lastWaitingCount.value == null) ? true : (waitingCount.value < lastWaitingCount.value)
+      if ((touchedThreshold || decreased) && (now - lastNotifiedAt.value > notifyCooldownMs)) {
+        try {
+          await axios.post(`/api/join/${storeId}/notify`, { customerId: customerId.value })
+          lastNotifiedAt.value = now
+        } catch (e) {
+          // サーバ側で安全に握りつぶす設計なので、ここはログだけでOK
+          console.warn('notify失敗（握りつぶし）:', e?.response?.status || e)
+        }
+      }
+      lastWaitingCount.value = waitingCount.value
+    }
   } catch (err) {
     console.error('待ち人数取得エラー:', err)
   }
@@ -179,26 +196,24 @@ onMounted(async () => {
   const savedId = localStorage.getItem('customerId')
   const savedName = localStorage.getItem('customerName')
 
-  if (savedId) {
-    customerId.value = savedId
-  }
+  if (savedId) customerId.value = savedId
   if (savedName) {
     name.value = savedName
     registeredName.value = savedName
   }
 
-  await fetchStoreName() // ←ここを追加！
-  fetchWaitingInfo()
+  await fetchStoreName()
 
-  intervalId = setInterval(() => {
-    fetchWaitingInfo()
-  }, 10 * 1000)
+  // ★ ポーリング開始（即時1回 + 周期）
+  startPolling()
+  document.addEventListener('visibilitychange', handleVisibility)
 })
 
 
+
 onUnmounted(() => {
-  // 🧹 クリーンアップ
-  if (intervalId) clearInterval(intervalId)
+  stopPolling()
+  document.removeEventListener('visibilitychange', handleVisibility)
 })
 
 const cancelRegistration = async () => {
@@ -211,6 +226,41 @@ const cancelRegistration = async () => {
   } catch (err) {
     console.error('キャンセルエラー:', err)
     message.value = 'キャンセルできませんでした'
+  }
+}
+
+// ==== ポーリング制御（重複ガード + 非表示で停止） ====
+const pollMs = 10000              // ポーリング間隔（必要に応じて変更）
+let pollId = null                 // setInterval のID
+let fetching = false              // リクエスト中フラグ
+
+async function tick () {
+  if (fetching) return
+  fetching = true
+  try {
+    await fetchWaitingInfo()      // ← 既存の取得関数をそのまま使う
+  } finally {
+    fetching = false
+  }
+}
+
+function startPolling () {
+  if (pollId) return              // 二重起動を防止
+  pollId = setInterval(tick, pollMs)
+  tick()                          // 起動直後に1回即時実行
+}
+
+function stopPolling () {
+  if (!pollId) return
+  clearInterval(pollId)
+  pollId = null
+}
+
+function handleVisibility () {
+  if (document.visibilityState === 'hidden') {
+    stopPolling()
+  } else {
+    startPolling()
   }
 }
 
