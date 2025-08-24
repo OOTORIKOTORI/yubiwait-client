@@ -34,16 +34,12 @@
     <input v-model="name" placeholder="お名前を入力" />
     <br />
     <!-- 登録ボタン -->
-    <button v-if="!customerId" @click="submit">
-      登録
-    </button>
+    <button v-if="!customerId" :disabled="submitting" @click="submit">登録</button>
     <button v-if="customerId" @click="resetRegistration">
       登録しなおす
     </button>
 
-    <button v-if="customerId" @click="cancelRegistration" class="cancel-button">
-      キャンセル
-    </button>
+    <button v-if="customerId" :disabled="cancelling" @click="cancelRegistration" class="cancel-button">キャンセル</button>
 
     <p v-if="message">{{ message }}</p>
   </div>
@@ -65,8 +61,9 @@ const estimatedTime = ref(null)
 const storeName = ref('')
 const minutesPerPerson = ref(5) // 表示用に使うなら
 const lastWaitingCount = ref(null)
-const lastNotifiedAt = ref(0)
-const notifyCooldownMs = 15000
+const submitting = ref(false)
+const cancelling = ref(false)
+let lastSubscription = null
 
 const fetchStoreName = async () => {
   try {
@@ -79,57 +76,71 @@ const fetchStoreName = async () => {
 }
 
 
+// 既存の submit を丸ごと差し替え
 const submit = async () => {
-  if (!name.value) return
-
+  if (submitting.value) return
+  message.value = ''
+  const trimmed = (name.value || '').trim().slice(0, 40)
+  if (!trimmed) return
+  submitting.value = true
   try {
-    const res = await axios.post(`/api/join/${storeId}`, { name: name.value })
+    const res = await axios.post(`/api/join/${storeId}`, { name: trimmed })
+
     message.value = res.data.message
     customerId.value = res.data.customerId
-    localStorage.setItem('customerId', res.data.customerId)  // ← 保存！
-    localStorage.setItem('customerName', name.value)
-    registeredName.value = name.value
+    localStorage.setItem('customerId', res.data.customerId)
+    localStorage.setItem('customerName', trimmed)   // ← ここを trimmed に
+    registeredName.value = trimmed                  // ← ここも trimmed に
 
+    if (res.data.cancelToken) {
+      localStorage.setItem('cancelToken', res.data.cancelToken)
+    }
 
     await fetchWaitingInfo()
-
-    // ✅ ここでPush購読処理を呼ぶ！
     await registerPushNotification()
   } catch (err) {
     message.value = '送信エラー'
     console.error(err)
+  } finally {
+    submitting.value = false
   }
 }
 
 async function registerPushNotification() {
+  // ✅ SW/Push/Notification 未対応なら何もしないで帰る
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || typeof Notification === 'undefined') {
+    console.warn('Push未対応環境（Service Worker / Push / Notification）');
+    // 必要ならユーザ向けメッセージを出す：
+    // message.value = 'この端末はプッシュ通知に対応していません（キャンセルは画面から可能です）';
+    return;
+  }
+
   try {
-    const response = await axios.get(`/api/join/${storeId}/publicKey`)
-    const publicKey = response.data.publicKey
+    const { data } = await axios.get(`/api/join/${storeId}/publicKey`)
+    const publicKey = data.publicKey
 
     const permission = await Notification.requestPermission()
     if (permission !== 'granted') {
-      alert('通知が許可されていません')
+      console.warn('通知が許可されませんでした')
+      // message.value = '通知が許可されていません（後からブラウザ設定で変更できます）'
       return
     }
 
-    const swVersion = '1.0.4' // ← 自分で手動でバージョン上げる
+    const swVersion = '1.0.4'
     const registration = await navigator.serviceWorker.register(`/service-worker.js?v=${swVersion}`, { scope: '/' })
+    await navigator.serviceWorker.ready
 
-    // const registration = await navigator.serviceWorker.register('/service-worker.js?ver=' + Date.now(), { scope: '/' })
-    console.log('SW 登録完了:', registration)
-
-    // Service Worker が "起動完了" するのを待つ！
-    const swReady = await navigator.serviceWorker.ready
-    console.log(swReady);
-
+    // 既存購読があればそれを使う（重複subscribeエラー回避）※任意だけどオススメ
     const existing = await registration.pushManager.getSubscription()
-    console.log('既存購読:', existing)
-    const subscription = await registration.pushManager.subscribe({
+    const subscription = existing || await registration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(publicKey)
     })
 
-    // 🔥 ここでサーバーに購読情報を送信！
+    // endpoint を保持（本人確認のfallbackに使う）
+    lastSubscription = subscription
+    localStorage.setItem('subscriptionEndpoint', subscription.endpoint)
+
     await axios.post(`/api/join/${storeId}/subscribe`, {
       customerId: customerId.value,
       subscription
@@ -138,6 +149,7 @@ async function registerPushNotification() {
     console.error('Push通知登録エラー:', err)
   }
 }
+
 
 
 function urlBase64ToUint8Array(base64String) {
@@ -156,23 +168,11 @@ const fetchWaitingInfo = async () => {
     if (customerId.value) params.customerId = customerId.value
     const res = await axios.get(`/api/join/${storeId}/waiting-time`, { params })
     waitingCount.value = res.data?.waitingCount ?? 0
-    estimatedTime.value  = Math.max(0, Math.round(res.data?.estimatedMinutes ?? 0))
+    estimatedTime.value = Math.max(0, Math.round(res.data?.estimatedMinutes ?? 0))
     // （任意）UIで見せたいなら保存しておける
     minutesPerPerson.value = res.data?.minutesPerPerson ?? minutesPerPerson.value
-    // 通知確認（閾値 or 減少時のみ & クールダウン）
+    // （通知はサーバ内部で行う想定のためクライアントからは叩かない）
     if (customerId.value) {
-      const now = Date.now()
-      const touchedThreshold = [3, 1, 0].includes(waitingCount.value)
-      const decreased = (lastWaitingCount.value == null) ? true : (waitingCount.value < lastWaitingCount.value)
-      if ((touchedThreshold || decreased) && (now - lastNotifiedAt.value > notifyCooldownMs)) {
-        try {
-          await axios.post(`/api/join/${storeId}/notify`, { customerId: customerId.value })
-          lastNotifiedAt.value = now
-        } catch (e) {
-          // サーバ側で安全に握りつぶす設計なので、ここはログだけでOK
-          console.warn('notify失敗（握りつぶし）:', e?.response?.status || e)
-        }
-      }
       lastWaitingCount.value = waitingCount.value
     }
   } catch (err) {
@@ -180,10 +180,23 @@ const fetchWaitingInfo = async () => {
   }
 }
 
-// ← リセット処理
-const resetRegistration = () => {
+const unregisterPush = async () => {
+  try {
+    if (!('serviceWorker' in navigator)) return
+    let reg = await navigator.serviceWorker.getRegistration('/')
+    if (!reg) reg = await navigator.serviceWorker.getRegistration() // ← フォールバック
+    const sub = await reg?.pushManager.getSubscription()
+    await sub?.unsubscribe()
+  } catch (e) { console.warn('unsubscribe失敗', e) }
+}
+
+
+const resetRegistration = async () => {
+  await unregisterPush()
   localStorage.removeItem('customerId')
   localStorage.removeItem('customerName')
+  localStorage.removeItem('cancelToken')
+  localStorage.removeItem('subscriptionEndpoint')
   customerId.value = null
   name.value = ''
   registeredName.value = ''
@@ -191,41 +204,65 @@ const resetRegistration = () => {
   fetchWaitingInfo()
 }
 
-// ✅ 初期化処理
+// 既存 onMounted の中で保存値を復元する処理に endpoint を追加
 onMounted(async () => {
   const savedId = localStorage.getItem('customerId')
   const savedName = localStorage.getItem('customerName')
+  const savedEndpoint = localStorage.getItem('subscriptionEndpoint')
 
   if (savedId) customerId.value = savedId
   if (savedName) {
     name.value = savedName
     registeredName.value = savedName
   }
+  if (savedEndpoint) {
+    lastSubscription = { endpoint: savedEndpoint }
+  }
 
   await fetchStoreName()
-
-  // ★ ポーリング開始（即時1回 + 周期）
   startPolling()
   document.addEventListener('visibilitychange', handleVisibility)
 })
-
-
 
 onUnmounted(() => {
   stopPolling()
   document.removeEventListener('visibilitychange', handleVisibility)
 })
 
+// cancelRegistration を丸ごと置き換え推奨
 const cancelRegistration = async () => {
+  if (cancelling.value) return
+  message.value = ''               // ← 追加
+  cancelling.value = true
   try {
-    await axios.delete(`/api/join/${storeId}/cancel`, {
-      data: { customerId: customerId.value }
-    })
+    const body = { customerId: customerId.value }
+
+    // 署名トークン（Push未購読でもOK）
+    const cancelToken = localStorage.getItem('cancelToken')
+    if (cancelToken) body.cancelToken = cancelToken
+
+    // Push購読の endpoint 一致でもOK（両対応にして通りやすく）
+    if (lastSubscription?.endpoint) {
+      body.subscription = { endpoint: lastSubscription.endpoint }
+    } else {
+      const ep = localStorage.getItem('subscriptionEndpoint')
+      if (ep) body.subscription = { endpoint: ep }
+    }
+
+    await axios.delete(`/api/join/${storeId}/cancel`, { data: body })
     resetRegistration()
     message.value = 'キャンセルしました'
   } catch (err) {
     console.error('キャンセルエラー:', err)
-    message.value = 'キャンセルできませんでした'
+    if (err?.response?.status === 403) {
+      message.value = '本人確認に失敗しました（再登録してお試しください）'
+    } else if (err?.response?.status === 409) {
+      message.value = '呼び出し中は画面からキャンセルできません'
+    } else {
+      message.value = 'キャンセルできませんでした'
+    }
+  } finally {
+    cancelling.value = false
   }
 }
 
@@ -234,7 +271,7 @@ const pollMs = 10000              // ポーリング間隔（必要に応じて�
 let pollId = null                 // setInterval のID
 let fetching = false              // リクエスト中フラグ
 
-async function tick () {
+async function tick() {
   if (fetching) return
   fetching = true
   try {
@@ -244,19 +281,19 @@ async function tick () {
   }
 }
 
-function startPolling () {
+function startPolling() {
   if (pollId) return              // 二重起動を防止
   pollId = setInterval(tick, pollMs)
   tick()                          // 起動直後に1回即時実行
 }
 
-function stopPolling () {
+function stopPolling() {
   if (!pollId) return
   clearInterval(pollId)
   pollId = null
 }
 
-function handleVisibility () {
+function handleVisibility() {
   if (document.visibilityState === 'hidden') {
     stopPolling()
   } else {
