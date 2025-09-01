@@ -23,12 +23,13 @@
             <h3>期間フィルタ</h3>
             <p class="note small">
                 日付だけ指定でOK（JST基準）。
-                <small v-if="activeQuick" class="note">選択中: {{ {today:'今日',yesterday:'昨日',week:'今週',month:'今月'}[activeQuick] }}</small>
+                <small v-if="activeQuick" class="note">選択中: {{
+                    { today: '今日', yesterday: '昨日', week: '今週', month: '今月' }[activeQuick] }}</small>
             </p>
             <div class="range-row">
-                <input type="date" v-model="fromDate" @input="activeQuick=null">
+                <input type="date" v-model="fromDate" @input="activeQuick = null">
                 <span>〜</span>
-                <input type="date" v-model="toDate"   @input="activeQuick=null">
+                <input type="date" v-model="toDate" @input="activeQuick = null">
                 <button class="secondary" @click="applyRange">適用</button>
                 <button class="chip" :class="{ active: activeQuick === 'today' }" aria-pressed="true"
                     v-if="activeQuick === 'today'" @click="quick('today')">今日</button>
@@ -81,15 +82,33 @@
         <div class="card" v-if="selectedStoreId">
             <h3>店舗設定</h3>
             <form @submit.prevent="saveSettings">
-                <label>1人あたりの推定待ち分</label>
-                <input type="number" min="1" v-model.number="waitMinutesPerPerson" />
-                <label>通知テンプレ（near）</label>
+                <!-- 追加：AutoCaller ON/OFF -->
+                <label class="row" style="display:flex;align-items:center;gap:8px;">
+                    <input type="checkbox" v-model="autoCallerEnabled" />
+                    自動呼出し（AutoCaller）を有効にする
+                </label>
+
+                <!-- 追加：同時枠 -->
+                <label>同時呼出し枠（MAX_SERVING）</label>
+                <input type="number" min="1" max="10" v-model.number="maxServing" :aria-invalid="!validMaxServing" />
+                <small v-if="!validMaxServing" class="field-error">1〜10の整数で入力してください</small>
+
+                <!-- 既存：分/人 -->
+                <label>1人あたりの推定待ち分（分）</label>
+                <input type="number" min="1" max="60" v-model.number="waitMinutesPerPerson"
+                    :aria-invalid="!validWait" />
+                <small v-if="!validWait" class="field-error">1〜60の整数で入力してください</small>
+
+                <!-- 通知テンプレ（本文のみを編集） -->
+                <label>通知テンプレ（near の本文）</label>
                 <input type="text" v-model="tplNear" placeholder="あと{{n}}人でご案内予定です。" />
-                <label>通知テンプレ（ready）</label>
+                <label>通知テンプレ（ready の本文）</label>
                 <input type="text" v-model="tplReady" placeholder="まもなくご案内できます。" />
-                <button type="submit" :disabled="saving">
+
+                <button type="submit" :disabled="saving || !formValid || !dirty">
                     {{ saving ? '保存中...' : '保存' }}
                 </button>
+                <button type="button" class="secondary" @click="resetForm" :disabled="saving || !dirty">変更を破棄</button>
                 <span v-if="saved" class="ok">保存しました</span>
             </form>
             <p v-if="settingsError" class="error">{{ settingsError }}</p>
@@ -152,10 +171,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import { useRouter } from 'vue-router'
-import { computed } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 
 const router = useRouter()
 const adminToken = localStorage.getItem('adminToken') || ''
@@ -171,6 +189,10 @@ const fromDate = ref('') // 'YYYY-MM-DD'
 const toDate = ref('')   // 'YYYY-MM-DD'
 const periodLabel = ref('今日の0時〜現在')
 const activeQuick = ref(null) // 'today' | 'yesterday' | 'week' | 'month' | null
+
+// 追加：AutoCaller 設定
+const autoCallerEnabled = ref(true)
+const maxServing = ref(1)
 
 // 期間クエリ生成（date-only をそのまま送る：サーバ側でJST解釈）
 const rangeParams = () => {
@@ -296,24 +318,61 @@ const fetchSettings = async () => {
     settingsError.value = ''
     try {
         const res = await axios.get(`/api/admin/stores/${selectedStoreId.value}/settings`, authHeaders())
-        waitMinutesPerPerson.value = res.data?.waitMinutesPerPerson ?? 5
-        tplNear.value = res.data?.notificationTemplate?.near ?? 'あと{{n}}人でご案内予定です。'
-        tplReady.value = res.data?.notificationTemplate?.ready ?? 'まもなくご案内できます。'
+
+        // AutoCaller
+        autoCallerEnabled.value = res.data?.autoCallerEnabled ?? true
+        maxServing.value = Number(res.data?.maxServing ?? 1)
+
+        // 分/人
+        waitMinutesPerPerson.value = Number(res.data?.waitMinutesPerPerson ?? 5)
+
+        // 通知テンプレ（near/ready は body を優先して読む。古い形式（文字列）にも対応）
+        const nt = res.data?.notificationTemplate || {}
+        const near = nt.near
+        const ready = nt.ready
+        tplNear.value = typeof near === 'string' ? near : (near?.body || 'あと{{n}}人でご案内予定です。')
+        tplReady.value = typeof ready === 'string' ? ready : (ready?.body || 'まもなくご案内できます。')
+        // ← 取得した値を原本として保持
+        original.value = {
+            autoCallerEnabled: autoCallerEnabled.value,
+            maxServing: maxServing.value,
+            waitMinutesPerPerson: waitMinutesPerPerson.value,
+            tplNear: tplNear.value,
+            tplReady: tplReady.value
+        }
     } catch (err) {
         console.error('設定取得失敗:', err)
         if (err?.response?.status === 401) { localStorage.removeItem('adminToken'); localStorage.removeItem('adminInfo'); router.push('/admin-login'); return }
         settingsError.value = err?.response?.data?.error || '設定の取得に失敗しました'
     }
 }
+
 const saveSettings = async () => {
     if (!selectedStoreId.value) return
+    if (!formValid.value) { settingsError.value = '入力値が不正です（枠は1〜10、分/人は1〜60）'; return }
     saving.value = true; saved.value = false; settingsError.value = ''
     try {
-        await axios.patch(`/api/admin/stores/${selectedStoreId.value}/settings`, {
-            waitMinutesPerPerson: waitMinutesPerPerson.value,
-            notificationTemplate: { near: tplNear.value, ready: tplReady.value }
-        }, authHeaders())
+        // AutoCaller を ON→OFF にする時は確認
+        if (original.value.autoCallerEnabled && !autoCallerEnabled.value) {
+            const ok = window.confirm('自動呼出しを無効にします。よろしいですか？')
+            if (!ok) { saving.value = false; return }
+        }
+        await axios.patch(
+            `/api/admin/stores/${selectedStoreId.value}/settings`,
+            {
+                autoCallerEnabled: !!autoCallerEnabled.value,
+                maxServing: Number(maxServing.value),
+                waitMinutesPerPerson: Number(waitMinutesPerPerson.value),
+                notificationTemplate: {
+                    near: { title: '', body: tplNear.value || '' },
+                    ready: { title: '', body: tplReady.value || '' }
+                }
+            },
+            authHeaders()
+        )
         saved.value = true; setTimeout(() => (saved.value = false), 1500)
+        // サーバ正規化値で再同期（原本も更新）
+        await fetchSettings()
     } catch (err) {
         console.error('設定保存失敗:', err)
         if (err?.response?.status === 401) { localStorage.removeItem('adminToken'); localStorage.removeItem('adminInfo'); router.push('/admin-login'); return }
@@ -449,6 +508,53 @@ const summaryTitle = computed(() => {
     if (!f && t) return `サマリー（〜${fmtYMD(t)}）`
     return 'サマリー'
 })
+
+// 保存済みの“原本”を保持（未保存変更の有無を出す用）
+const original = ref({
+    autoCallerEnabled: true,
+    maxServing: 1,
+    waitMinutesPerPerson: 5,
+    tplNear: 'あと{{n}}人でご案内予定です。',
+    tplReady: 'まもなくご案内できます。'
+})
+
+// 数値クランプ（整数化＆範囲内に丸め）
+const clampInt = (n, min, max) => {
+    let v = Math.trunc(Number(n))
+    if (Number.isNaN(v)) v = min
+    return Math.min(max, Math.max(min, v))
+}
+
+// 入力のライブ補正（ホイール誤操作でも暴れないように）
+watch(maxServing, v => { if (v !== '' && v != null) maxServing.value = clampInt(v, 1, 10) })
+watch(waitMinutesPerPerson, v => { if (v !== '' && v != null) waitMinutesPerPerson.value = clampInt(v, 1, 60) })
+
+// 入力妥当性
+const validMaxServing = computed(() =>
+    Number.isInteger(maxServing.value) && maxServing.value >= 1 && maxServing.value <= 10
+)
+const validWait = computed(() =>
+    Number.isInteger(waitMinutesPerPerson.value) && waitMinutesPerPerson.value >= 1 && waitMinutesPerPerson.value <= 60
+)
+const formValid = computed(() => validMaxServing.value && validWait.value)
+
+// 未保存変更の有無
+const dirty = computed(() =>
+    original.value.autoCallerEnabled !== autoCallerEnabled.value ||
+    original.value.maxServing !== maxServing.value ||
+    original.value.waitMinutesPerPerson !== waitMinutesPerPerson.value ||
+    original.value.tplNear !== tplNear.value ||
+    original.value.tplReady !== tplReady.value
+)
+
+// 原本に戻す
+const resetForm = () => {
+    autoCallerEnabled.value = original.value.autoCallerEnabled
+    maxServing.value = original.value.maxServing
+    waitMinutesPerPerson.value = original.value.waitMinutesPerPerson
+    tplNear.value = original.value.tplNear
+    tplReady.value = original.value.tplReady
+}
 
 </script>
 
@@ -642,4 +748,7 @@ button[type="submit"],
     outline: 2px solid #99c0ff;
     outline-offset: 2px;
 }
+
+.field-error { color:#c00; font-size:12px; margin-top:4px; display:block; }
+input[aria-invalid="true"] { border-color:#c00; outline-color:#c00; }
 </style>
