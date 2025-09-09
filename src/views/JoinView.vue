@@ -1,12 +1,20 @@
+
 <template>
   <div class="container">
     <h2>受付ページ - {{ storeName }}</h2>
-    <p>店舗ID: {{ storeId }}</p>
+    <p class="store-id">店舗ID: {{ storeId }}</p>
 
-    <div v-if="waitingCount !== null" class="status" :class="{
-      'highlight-warning': waitingCount <= 3 && waitingCount > 0,
-      'highlight-now': waitingCount === 0
-    }">
+    <!-- 現在状況（読み上げ対応） -->
+    <div
+      v-if="waitingCount !== null"
+      class="status"
+      :class="{
+        'highlight-warning': waitingCount <= 3 && waitingCount > 0,
+        'highlight-now': waitingCount === 0
+      }"
+      role="status"
+      aria-live="polite"
+    >
       <template v-if="waitingCount === 0">
         <div v-if="customerId">
           🎉 あなたの順番です！<br />
@@ -23,48 +31,115 @@
       </template>
       <small v-if="minutesPerPerson">（1人あたり {{ minutesPerPerson }} 分基準）</small>
     </div>
-    <div v-else-if="waitingCount === null">
-      情報を取得しています...
-    </div>
+    <div v-else class="loading">情報を取得しています...</div>
 
-    <p v-if="customerId && registeredName">
+    <p v-if="customerId && registeredName" class="hint">
       「{{ registeredName }}」さんの待ち時間です
     </p>
 
-    <input v-model="name" placeholder="お名前を入力" />
-    <br />
-    <!-- 登録ボタン -->
-    <button v-if="!customerId" :disabled="submitting" @click="submit">登録</button>
-    <button v-if="customerId" @click="resetRegistration">
-      登録しなおす
-    </button>
+    <!-- 入力/送信 -->
+    <form class="form" @submit.prevent="submit" novalidate>
+      <input
+        v-model="name"
+        placeholder="お名前を入力"
+        inputmode="text"
+        autocomplete="name"
+        :maxlength="40"
+        :minlength="1"
+        :aria-invalid="nameError ? 'true' : 'false'"
+      />
+      <div class="actions">
+        <button
+          v-if="!customerId"
+          type="submit"
+          :disabled="submitting || !!nameError"
+          :aria-busy="submitting ? 'true' : 'false'"
+        >
+          登録
+        </button>
 
-    <button v-if="customerId" :disabled="cancelling" @click="cancelRegistration" class="cancel-button">キャンセル</button>
+        <button
+          v-if="customerId"
+          type="button"
+          class="secondary"
+          @click="resetRegistration"
+        >
+          登録しなおす
+        </button>
 
-    <p v-if="message">{{ message }}</p>
+        <button
+          v-if="customerId"
+          ref="cancelBtn"
+          type="button"
+          class="cancel-button"
+          :disabled="cancelling"
+          @click="cancelRegistration"
+        >
+          キャンセル
+        </button>
+      </div>
+    </form>
+
+    <!-- 通知許可をあとから行うための補助ボタン -->
+    <div v-if="showNotifyButton" class="notify-box">
+      <p class="notify-text">呼び出し通知を受け取るには通知の許可が必要です。</p>
+      <button type="button" class="secondary" @click="requestNotify">
+        通知を許可する
+      </button>
+    </div>
+
+    <p v-if="message" class="message">{{ message }}</p>
+    <p v-if="lastUpdated" class="mini">最終更新: {{ lastUpdated }}</p>
   </div>
 </template>
+
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
 
 const route = useRoute()
 const storeId = route.params.storeId
 
-const name = ref('') // 入力中
-const registeredName = ref('') // 登録済み（表示用）
+// ---- state ----
+const name = ref('')                   // 入力中
+const registeredName = ref('')         // 登録済み（表示用）
 const message = ref('')
 const customerId = ref(null)
 const waitingCount = ref(null)
 const estimatedTime = ref(null)
 const storeName = ref('')
-const minutesPerPerson = ref(5) // 表示用に使うなら
-const lastWaitingCount = ref(null)
+const minutesPerPerson = ref(5)
 const submitting = ref(false)
 const cancelling = ref(false)
-let lastSubscription = null
+const cancelBtn = ref(null)
 
+let lastSubscription = null            // { endpoint }
+const lastUpdated = ref('')
+
+// Push/SW対応可否
+const notificationSupported = typeof Notification !== 'undefined'
+  && 'serviceWorker' in navigator
+  && 'PushManager' in window
+
+const permission = ref(notificationSupported ? Notification.permission : 'denied')
+
+const showNotifyButton = computed(() => {
+  return Boolean(
+    customerId.value &&
+    notificationSupported &&
+    permission.value !== 'granted'
+  )
+})
+
+const nameError = computed(() => {
+  const trimmed = (name.value || '').trim()
+  if (!trimmed) return '名前を入力してください'
+  if (trimmed.length > 40) return '40文字以内で入力してください'
+  return ''
+})
+
+// ---- helpers ----
 const fetchStoreName = async () => {
   try {
     const res = await axios.get(`/api/join/${storeId}/name`)
@@ -75,29 +150,39 @@ const fetchStoreName = async () => {
   }
 }
 
-
-// 既存の submit を丸ごと差し替え
+// 送信
 const submit = async () => {
   if (submitting.value) return
   message.value = ''
   const trimmed = (name.value || '').trim().slice(0, 40)
-  if (!trimmed) return
+  if (!trimmed) {
+    message.value = '名前を入力してください'
+    return
+  }
   submitting.value = true
   try {
     const res = await axios.post(`/api/join/${storeId}`, { name: trimmed })
-
     message.value = res.data.message
     customerId.value = res.data.customerId
+
     localStorage.setItem('customerId', res.data.customerId)
-    localStorage.setItem('customerName', trimmed)   // ← ここを trimmed に
-    registeredName.value = trimmed                  // ← ここも trimmed に
+    localStorage.setItem('customerName', trimmed)
+    registeredName.value = trimmed
 
     if (res.data.cancelToken) {
       localStorage.setItem('cancelToken', res.data.cancelToken)
     }
 
     await fetchWaitingInfo()
-    await registerPushNotification()
+
+    // 通知権限がすでに許可済みなら自動購読
+    if (permission.value === 'granted') {
+      await registerPushNotification()
+    }
+
+    // UX: キャンセルボタンにフォーカス
+    await nextTick()
+    cancelBtn.value?.focus()
   } catch (err) {
     message.value = '送信エラー'
     console.error(err)
@@ -106,38 +191,41 @@ const submit = async () => {
   }
 }
 
-async function registerPushNotification() {
-  // ✅ SW/Push/Notification 未対応なら何もしないで帰る
-  if (!('serviceWorker' in navigator) || !('PushManager' in window) || typeof Notification === 'undefined') {
-    console.warn('Push未対応環境（Service Worker / Push / Notification）');
-    // 必要ならユーザ向けメッセージを出す：
-    // message.value = 'この端末はプッシュ通知に対応していません（キャンセルは画面から可能です）';
-    return;
+// 通知を明示的に許可（ボタン用）
+const requestNotify = async () => {
+  if (!notificationSupported) return
+  try {
+    const p = await Notification.requestPermission()
+    permission.value = p
+    if (p === 'granted') {
+      await registerPushNotification()
+      message.value = '通知を有効にしました'
+    } else {
+      message.value = '通知は許可されませんでした'
+    }
+  } catch (e) {
+    console.error('通知許可エラー:', e)
   }
+}
+
+async function registerPushNotification () {
+  if (!notificationSupported) return
 
   try {
     const { data } = await axios.get(`/api/join/${storeId}/publicKey`)
     const publicKey = data.publicKey
 
-    const permission = await Notification.requestPermission()
-    if (permission !== 'granted') {
-      console.warn('通知が許可されませんでした')
-      // message.value = '通知が許可されていません（後からブラウザ設定で変更できます）'
-      return
-    }
-
-    const swVersion = '1.0.4'
+    const swVersion = '1.0.5'
     const registration = await navigator.serviceWorker.register(`/service-worker.js?v=${swVersion}`, { scope: '/' })
     await navigator.serviceWorker.ready
 
-    // 既存購読があればそれを使う（重複subscribeエラー回避）※任意だけどオススメ
+    // 既存購読を再利用
     const existing = await registration.pushManager.getSubscription()
     const subscription = existing || await registration.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(publicKey)
     })
 
-    // endpoint を保持（本人確認のfallbackに使う）
     lastSubscription = subscription
     localStorage.setItem('subscriptionEndpoint', subscription.endpoint)
 
@@ -150,18 +238,14 @@ async function registerPushNotification() {
   }
 }
 
-
-
-function urlBase64ToUint8Array(base64String) {
+function urlBase64ToUint8Array (base64String) {
   const padding = '='.repeat((4 - base64String.length % 4) % 4)
-  const base64 = (base64String + padding)
-    .replace(/-/g, '+')
-    .replace(/_/g, '/')
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
   const rawData = window.atob(base64)
-  return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)))
+  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)))
 }
 
-
+// 待ち情報
 const fetchWaitingInfo = async () => {
   try {
     const params = {}
@@ -169,27 +253,27 @@ const fetchWaitingInfo = async () => {
     const res = await axios.get(`/api/join/${storeId}/waiting-time`, { params })
     waitingCount.value = res.data?.waitingCount ?? 0
     estimatedTime.value = Math.max(0, Math.round(res.data?.estimatedMinutes ?? 0))
-    // （任意）UIで見せたいなら保存しておける
     minutesPerPerson.value = res.data?.minutesPerPerson ?? minutesPerPerson.value
-    // （通知はサーバ内部で行う想定のためクライアントからは叩かない）
-    if (customerId.value) {
-      lastWaitingCount.value = waitingCount.value
-    }
+    lastUpdated.value = new Date().toLocaleTimeString()
+    // 正常応答ならポーリング間隔をリセット
+    resetBackoff()
   } catch (err) {
     console.error('待ち人数取得エラー:', err)
+    // 失敗時はバックオフ
+    increaseBackoff()
   }
 }
 
+// Push 購読解除（登録し直し時）
 const unregisterPush = async () => {
   try {
     if (!('serviceWorker' in navigator)) return
     let reg = await navigator.serviceWorker.getRegistration('/')
-    if (!reg) reg = await navigator.serviceWorker.getRegistration() // ← フォールバック
+    if (!reg) reg = await navigator.serviceWorker.getRegistration()
     const sub = await reg?.pushManager.getSubscription()
     await sub?.unsubscribe()
   } catch (e) { console.warn('unsubscribe失敗', e) }
 }
-
 
 const resetRegistration = async () => {
   await unregisterPush()
@@ -201,27 +285,78 @@ const resetRegistration = async () => {
   name.value = ''
   registeredName.value = ''
   message.value = '登録情報をリセットしました'
-  fetchWaitingInfo()
+  await fetchWaitingInfo()
 }
 
-// 既存 onMounted の中で保存値を復元する処理に endpoint を追加
+// ---- ポーリング（自己調整バックオフ） ----
+const basePollMs = 10000
+let nextDelay = basePollMs
+let timerId = null
+let polling = false
+
+function resetBackoff () {
+  nextDelay = basePollMs
+}
+
+function increaseBackoff () {
+  nextDelay = Math.min(nextDelay * 2, 60000) // 最大60秒
+}
+
+async function tick () {
+  if (polling) return
+  polling = true
+  try {
+    await fetchWaitingInfo()
+  } finally {
+    polling = false
+    scheduleNext()
+  }
+}
+
+function scheduleNext () {
+  clearTimeout(timerId)
+  timerId = setTimeout(tick, nextDelay)
+}
+
+function startPolling () {
+  if (timerId) return
+  scheduleNext() // すぐ一回 + 次回以降は nextDelay に従う
+}
+
+function stopPolling () {
+  clearTimeout(timerId)
+  timerId = null
+}
+
+function handleVisibility () {
+  if (document.visibilityState === 'hidden') {
+    stopPolling()
+  } else {
+    startPolling()
+  }
+}
+
+// ---- lifecycle ----
 onMounted(async () => {
-  const savedId = localStorage.getItem('customerId')
-  const savedName = localStorage.getItem('customerName')
-  const savedEndpoint = localStorage.getItem('subscriptionEndpoint')
+  try {
+    const savedId = localStorage.getItem('customerId')
+    const savedName = localStorage.getItem('customerName')
+    const savedEndpoint = localStorage.getItem('subscriptionEndpoint')
 
-  if (savedId) customerId.value = savedId
-  if (savedName) {
-    name.value = savedName
-    registeredName.value = savedName
+    if (savedId) customerId.value = savedId
+    if (savedName) {
+      name.value = savedName
+      registeredName.value = savedName
+    }
+    if (savedEndpoint) {
+      lastSubscription = { endpoint: savedEndpoint }
+    }
+    await fetchStoreName()
+    await fetchWaitingInfo()
+  } finally {
+    startPolling()
+    document.addEventListener('visibilitychange', handleVisibility)
   }
-  if (savedEndpoint) {
-    lastSubscription = { endpoint: savedEndpoint }
-  }
-
-  await fetchStoreName()
-  startPolling()
-  document.addEventListener('visibilitychange', handleVisibility)
 })
 
 onUnmounted(() => {
@@ -229,19 +364,17 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', handleVisibility)
 })
 
-// cancelRegistration を丸ごと置き換え推奨
+// キャンセル
 const cancelRegistration = async () => {
   if (cancelling.value) return
-  message.value = ''               // ← 追加
+  message.value = ''
   cancelling.value = true
   try {
     const body = { customerId: customerId.value }
 
-    // 署名トークン（Push未購読でもOK）
     const cancelToken = localStorage.getItem('cancelToken')
     if (cancelToken) body.cancelToken = cancelToken
 
-    // Push購読の endpoint 一致でもOK（両対応にして通りやすく）
     if (lastSubscription?.endpoint) {
       body.subscription = { endpoint: lastSubscription.endpoint }
     } else {
@@ -250,7 +383,7 @@ const cancelRegistration = async () => {
     }
 
     await axios.delete(`/api/join/${storeId}/cancel`, { data: body })
-    resetRegistration()
+    await resetRegistration()
     message.value = 'キャンセルしました'
   } catch (err) {
     console.error('キャンセルエラー:', err)
@@ -265,45 +398,10 @@ const cancelRegistration = async () => {
     cancelling.value = false
   }
 }
-
-// ==== ポーリング制御（重複ガード + 非表示で停止） ====
-const pollMs = 10000              // ポーリング間隔（必要に応じて変更）
-let pollId = null                 // setInterval のID
-let fetching = false              // リクエスト中フラグ
-
-async function tick() {
-  if (fetching) return
-  fetching = true
-  try {
-    await fetchWaitingInfo()      // ← 既存の取得関数をそのまま使う
-  } finally {
-    fetching = false
-  }
-}
-
-function startPolling() {
-  if (pollId) return              // 二重起動を防止
-  pollId = setInterval(tick, pollMs)
-  tick()                          // 起動直後に1回即時実行
-}
-
-function stopPolling() {
-  if (!pollId) return
-  clearInterval(pollId)
-  pollId = null
-}
-
-function handleVisibility() {
-  if (document.visibilityState === 'hidden') {
-    stopPolling()
-  } else {
-    startPolling()
-  }
-}
-
 </script>
 
 <style scoped>
+/* 参考：コンテナはそのままでOK */
 .container {
   max-width: 400px;
   margin: 60px auto;
@@ -315,74 +413,144 @@ function handleVisibility() {
   box-shadow: 0 0 10px rgba(0, 0, 0, 0.05);
 }
 
-input {
-  padding: 8px;
-  width: 70%;
-  margin-top: 12px;
-  border-radius: 4px;
-  border: 1px solid #ccc;
+h2 {
+  margin: 0 0 6px 0;
+  font-size: 22px;
 }
 
-button {
-  margin-top: 12px;
-  padding: 8px 16px;
-  margin-right: 8px;
-  border: none;
-  background-color: #007bff;
-  color: white;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-button:hover {
-  background-color: #0056b3;
+.store-id {
+  margin: 0 0 12px 0;
+  color: #6b7280;
+  font-size: 12px;
+  word-break: break-all;
 }
 
 .status {
   margin: 16px 0;
-  font-size: 1.1em;
+  font-size: 15px;
 }
 
-/* 強調：まもなく呼ばれる */
-.highlight-warning {
+.loading {
+  color: #6b7280;
+  margin: 12px 0;
+}
+
+.hint {
+  margin: 6px 0 0 0;
+  color: #374151;
+}
+
+.form {
+  margin-top: 12px;
+}
+
+/* 追加：幅計算を border-box に統一 */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+/* 入力欄を枠内にピッタリ収める */
+input {
+  width: 100%;
+  max-width: 100%;
+  display: block;
+  padding: 10px 14px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  box-sizing: border-box; /* ←コレが効く */
+  font-size: 16px;         /* iOSのズーム防止にも有効 */
+  margin-top: 12px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+button {
+  margin-top: 12px;
+  padding: 10px 16px;
+  border: none;
+  background-color: #2563eb;
+  color: white;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+button:hover {
+  background-color: #1e40af;
+}
+
+button.secondary {
+  background-color: #6b7280;
+}
+button.secondary:hover {
+  background-color: #4b5563;
+}
+
+.cancel-button {
+  background-color: #ef4444;
+}
+.cancel-button:hover {
+  background-color: #b91c1c;
+}
+
+button:disabled {
+  background-color: #cbd5e1;
+  color: #6b7280;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.status.highlight-warning {
   background-color: #fff8e1;
-  border: 1px solid #ffc107;
-  color: #b36b00;
-  font-weight: bold;
+  border: 1px solid #f59e0b;
+  color: #92400e;
+  font-weight: 600;
   padding: 12px;
-  border-radius: 6px;
+  border-radius: 8px;
 }
 
-/* 強調：あなたの番！ */
-.highlight-now {
+.status.highlight-now {
   background-color: #e1f5fe;
-  border: 2px solid #00acc1;
-  color: #006064;
-  font-weight: bold;
-  font-size: 1.2em;
-  padding: 16px;
-  border-radius: 6px;
+  border: 2px solid #06b6d4;
+  color: #0e7490;
+  font-weight: 700;
+  font-size: 1.1em;
+  padding: 14px;
+  border-radius: 8px;
   animation: pulse 1s infinite;
 }
 
 @keyframes pulse {
-  0% {
-    transform: scale(1);
-  }
-
-  50% {
-    transform: scale(1.05);
-  }
-
-  100% {
-    transform: scale(1);
-  }
+  0% { transform: scale(1); }
+  50% { transform: scale(1.03); }
+  100% { transform: scale(1); }
 }
 
-button:disabled {
-  background-color: #ccc;
-  color: #666;
-  cursor: not-allowed;
-  opacity: 0.6;
+.message {
+  margin-top: 10px;
+}
+
+.mini {
+  margin-top: 8px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.notify-box {
+  margin-top: 8px;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  padding: 10px;
+  border-radius: 8px;
+}
+
+.notify-text {
+  margin: 0;
+  font-size: 13px;
 }
 </style>

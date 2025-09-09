@@ -48,7 +48,6 @@
                 <button class="chip" :class="{ active: activeQuick === 'month' }"
                     :aria-pressed="activeQuick === 'month'" v-else @click="quick('month')">今月</button>
             </div>
-            <p class="note small">日付だけ指定でOK（JST基準）。</p>
         </div>
 
         <!-- 概要メトリクス（本日） -->
@@ -99,11 +98,19 @@
                     :aria-invalid="!validWait" />
                 <small v-if="!validWait" class="field-error">1〜60の整数で入力してください</small>
 
-                <!-- 通知テンプレ（本文のみを編集） -->
+                <!-- 通知テンプレ（near の本文） -->
                 <label>通知テンプレ（near の本文）</label>
-                <input type="text" v-model="tplNear" placeholder="あと{{n}}人でご案内予定です。" />
+                <input type="text" v-model="tplNear" placeholder="あと{{n}}人でご案内予定です。" maxlength="120" />
+
+                <!-- 通知テンプレ（ready の本文） -->
                 <label>通知テンプレ（ready の本文）</label>
-                <input type="text" v-model="tplReady" placeholder="まもなくご案内できます。" />
+                <input type="text" v-model="tplReady" placeholder="まもなくご案内できます。" maxlength="120" />
+
+                <!-- 使えるプレースホルダの説明（画面だけ） -->
+                <p class="note small">
+                    置換可能: <code>{{ n }}</code>（今のあなたの前にいる人数）
+                    <!-- 将来増やすなら例）<code>{{eta}}</code>（およその待ち分）など -->
+                </p>
 
                 <button type="submit" :disabled="saving || !formValid || !dirty">
                     {{ saving ? '保存中...' : '保存' }}
@@ -749,6 +756,15 @@ button[type="submit"],
     outline-offset: 2px;
 }
 
-.field-error { color:#c00; font-size:12px; margin-top:4px; display:block; }
-input[aria-invalid="true"] { border-color:#c00; outline-color:#c00; }
+.field-error {
+    color: #c00;
+    font-size: 12px;
+    margin-top: 4px;
+    display: block;
+}
+
+input[aria-invalid="true"] {
+    border-color: #c00;
+    outline-color: #c00;
+}
 </style>
